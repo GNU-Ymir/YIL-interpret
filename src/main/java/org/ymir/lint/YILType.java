@@ -4,12 +4,15 @@ import org.ymir.lexing.Word;
 
 public abstract class YILType extends YILNode {
     protected long _uid;
-    private static long __UID__;
 
-    public YILType(Word loc) {
-        super(loc);
-        this._uid = __UID__;
-        __UID__++;
+    public YILType() {
+        super(Word.EOF);
+        this._uid = 0;
+    }
+
+    public YILType(long uid) {
+        super(Word.EOF);
+        this._uid = uid;
     }
 
     public long getUid() {
@@ -20,6 +23,6 @@ public abstract class YILType extends YILNode {
         this._uid = uid;
     }
 
-    public abstract int getSize();
-    public abstract int getAlign();
+    public abstract long getSize();
+    public abstract long getAlign();
 }
