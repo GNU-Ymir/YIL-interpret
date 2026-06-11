@@ -1,7 +1,6 @@
-
 plugins {
     id("java")
-    id ("application")
+    id("application")
 }
 
 group = "org.ymir"
@@ -25,6 +24,7 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    implementation("ch.obermuhlner:big-math:2.3.2")
 }
 
 tasks.test {
