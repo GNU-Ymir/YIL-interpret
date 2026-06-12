@@ -8,6 +8,7 @@ import org.ymir.lint.YILType;
 import org.ymir.lint.instr.YILVarDecl;
 import org.ymir.utils.Formatter;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
@@ -18,7 +19,9 @@ public class YILFrame extends YILGlobal {
     private YILInstr _body;
     private boolean _isGlobalCtor;
 
-    public YILFrame(Word loc,
+    public YILFrame(Instant creationTime,
+                    String src,
+                    Word loc,
                     Word implLoc,
                     String name,
                     boolean isWeak,
@@ -26,7 +29,7 @@ public class YILFrame extends YILGlobal {
                     YILType retType,
                     YILInstr body,
                     boolean isGlobalCtor) {
-        super(loc, implLoc, name, isWeak);
+        super(creationTime, src, loc, implLoc, name, isWeak);
         this._params = params;
         this._retType = retType;
         this._body = body;

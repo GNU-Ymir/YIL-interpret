@@ -6,6 +6,7 @@ import org.ymir.lint.YILNode;
 import org.ymir.lint.YILValue;
 import org.ymir.utils.Formatter;
 
+import java.time.Instant;
 import java.util.Objects;
 
 public class YILConstant extends YILGlobal {
@@ -13,14 +14,17 @@ public class YILConstant extends YILGlobal {
     private final YILValue _value;
     private boolean _isLocal;
 
-    public YILConstant(Word loc,
+    public YILConstant(Instant creationTime,
+                       String src,
+                       Word loc,
                        Word implLoc,
                        String name,
                        boolean isWeak,
-                       YILValue value)
-    {
-        super(loc, implLoc, name, isWeak);
+                       boolean isLocal,
+                       YILValue value) {
+        super(creationTime, src, loc, implLoc, name, isWeak);
         this._value = value;
+        this._isLocal = isLocal;
     }
 
     @Override
