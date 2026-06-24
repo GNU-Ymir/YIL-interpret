@@ -157,4 +157,36 @@ public class YILLoader {
             throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE_STRING_TABLE.message));
         }
     }
+
+    private byte[] readStringAsU8(long nameOff) throws YILLoadingError {
+        if (nameOff > this._currentStringTable.length) {
+            throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE_STRING_TABLE.message));
+        }
+        try {
+            var reader = new ByteReader(ByteBuffer.wrap(this._currentStringTable, (int) nameOff, (int) (this._currentStringTable.length - nameOff)).array());
+            var len = reader.readU64();
+            return reader.readU8((int) len);
+        } catch (Throwable th) {
+            throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE_STRING_TABLE.message));
+        }
+    }
+
+    private Word readLocation(long locOff) throws YILLoadingError {
+        if (locOff > this._currentLocationTable.length) {
+            throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE_STRING_TABLE.message));
+        }
+
+        try {
+            var reader = new ByteReader(ByteBuffer.wrap(this._currentLocationTable, (int) locOff, (int) (this._currentLocationTable.length - locOff)).array());
+            var strOff = reader.readU64();
+            var line = reader.readU32();
+            var col = reader.readU32();
+            var file = this.readString(strOff);
+
+            return new Word(file, line, col);
+        } catch (Throwable th) {
+            throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE_STRING_TABLE.message));
+        }
+    }
+
 }
