@@ -14,8 +14,11 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 public class YILLoader {
 
@@ -52,6 +55,28 @@ public class YILLoader {
 
     public Map<String, YILGlobalVar> getGlobalVars() {
         return _globalVars;
+    }
+
+    public boolean isEmpty() {
+        return this._frames.isEmpty()
+                && this._constants.isEmpty()
+                && this._globalVars.isEmpty();
+    }
+
+    public List<YILGlobal> getNodes() {
+        var constants = new java.util.ArrayList<YILGlobal>(this._constants.values().stream().toList());
+        var frames = new java.util.ArrayList<YILGlobal>(this._frames.values().stream().toList());
+        var vars = new java.util.ArrayList<YILGlobal>(this._globalVars.values().stream().toList());
+
+        constants.sort(Comparator.comparing(YILGlobal::getName));
+        frames.sort(Comparator.comparing(YILGlobal::getName));
+        vars.sort(Comparator.comparing(YILGlobal::getName));
+
+        return Stream.concat(
+                        Stream.concat(constants.stream(),
+                                frames.stream()),
+                        vars.stream())
+                .toList();
     }
 
     public void load(String module) throws YILLoadingError {
