@@ -9,6 +9,8 @@ import java.util.Objects;
 
 public class YILPointer extends YILType {
 
+    public static final YILPointer YIL_PTR_VOID = new YILPointer(1, YILVoid.YIL_VOID);
+
     private YILType _inner;
 
     public YILPointer(long uid, YILType inner) {
