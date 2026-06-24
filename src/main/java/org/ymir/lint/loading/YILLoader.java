@@ -8,16 +8,14 @@ import org.ymir.lint.global.YILConstant;
 import org.ymir.lint.global.YILFrame;
 import org.ymir.lint.global.YILGlobalVar;
 import org.ymir.lint.instr.YILLabel;
+import org.ymir.lint.type.*;
 import org.ymir.lint.value.YILVarValue;
 
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Instant;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Stream;
 
 public class YILLoader {
@@ -44,6 +42,14 @@ public class YILLoader {
     public YILLoader() {
     }
 
+
+    /*!
+     * ====================================================================================================
+     * ====================================================================================================
+     * ====================================          GETTERS          =====================================
+     * ====================================================================================================
+     * ====================================================================================================
+     */
 
     public Map<String, YILFrame> getFrames() {
         return _frames;
@@ -78,6 +84,14 @@ public class YILLoader {
                         vars.stream())
                 .toList();
     }
+
+    /*!
+     * ====================================================================================================
+     * ====================================================================================================
+     * =====================================          USAGE          ======================================
+     * ====================================================================================================
+     * ====================================================================================================
+     */
 
     public void load(String module) throws YILLoadingError {
         try {
@@ -125,8 +139,192 @@ public class YILLoader {
         }
     }
 
-    private void loadTypes() {
+    /*!
+     * ====================================================================================================
+     * ====================================================================================================
+     * =====================================          TYPES          ======================================
+     * ====================================================================================================
+     * ====================================================================================================
+     */
+
+    private void loadTypes() throws YILLoadingError {
+        var reader = new ByteReader(this._currentTypeTable);
+        while (reader.getSize() > 0) {
+            var type = (int) reader.readU8();
+            if (type == TypeID.ARRAY.value) {
+                this.readArrayType(reader);
+            } else if (type == TypeID.POINTER.value) {
+                this.readPointerType(reader);
+            } else if (type == TypeID.TUPLE.value) {
+                this.readTupleType(reader);
+            } else {
+                throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE_TYPE_TABLE.message));
+            }
+        }
+
+        this.wrapUpTypeReferences();
     }
+
+    private void readArrayType(ByteReader reader) throws YILLoadingError {
+        var id = reader.readU64();
+        var len = reader.readU64();
+        var innerId = reader.readU64();
+        var inner = this.getTypeOrPlaceHolder(innerId);
+
+        this._importedTypes.put(innerId, new YILArray(id, inner, len));
+    }
+
+    private void readPointerType(ByteReader reader) throws YILLoadingError {
+        var id = reader.readU64();
+        var innerId = reader.readU64();
+        var inner = this.getTypeOrPlaceHolder(innerId);
+
+        this._importedTypes.put(innerId, new YILPointer(id, inner));
+    }
+
+    private void readTupleType(ByteReader reader) throws YILLoadingError {
+        var id = reader.readU64();
+        var isUnion = reader.readBool();
+        var isPacked = reader.readBool();
+
+        var nbNames = reader.readU64();
+        var nbFields = reader.readU64();
+
+        var names = new ArrayList<String>();
+        var inners = new ArrayList<YILType>();
+        for (long i = 0; i < nbNames; i++) {
+            var off = reader.readU64();
+            names.add(this.readString(off));
+        }
+        for (long i = 0; i < nbFields; i++) {
+            var off = reader.readU64();
+            inners.add(this.getTypeOrPlaceHolder(off));
+        }
+
+        this._importedTypes.put(id, new YILTuple(id, inners, names, isUnion, isPacked));
+    }
+
+    private void wrapUpTypeReferences() throws YILLoadingError {
+        try {
+            this._importedTypes.forEach((key, value) -> {
+                if (value instanceof YILArray array) {
+                    if (array.getInner() instanceof YILTypePlaceholder hold) {
+                        try {
+                            array.setInner(this.getType(hold.getUid()));
+                        } catch (YILLoadingError e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                } else if (value instanceof YILPointer pointer) {
+                    if (pointer.getInner() instanceof YILTypePlaceholder hold) {
+                        try {
+                            pointer.setInner(this.getType(hold.getUid()));
+                        } catch (YILLoadingError e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                } else if (value instanceof YILTuple tuple) {
+                    var innerList = new ArrayList<>(tuple.getInners());
+                    for (var i = 0; i < innerList.size(); i++) {
+                        if (innerList.get(i) instanceof YILTypePlaceholder hold) {
+                            try {
+                                innerList.set(i, this.getType(hold.getUid()));
+                            } catch (YILLoadingError e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    }
+                    tuple.setInners(innerList, tuple.getFieldNames());
+                }
+            });
+        } catch (RuntimeException err) {
+            throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE_TYPE_TABLE.message));
+        }
+    }
+
+    private YILType getTypeOrPlaceHolder(long uid) throws YILLoadingError {
+        if (uid >= TypeID.OFFSET.value) {
+            var result = this._importedTypes.get(uid);
+            if (result == null) {
+                return new YILTypePlaceholder(uid);
+            }
+
+            return result;
+        }
+
+        return this.getScalarType(uid);
+    }
+
+    private YILType getType(long uid) throws YILLoadingError {
+        if (uid >= TypeID.OFFSET.value) {
+            var result = this._importedTypes.get(uid);
+            if (result == null) {
+                throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE_TYPE_TABLE.message, uid));
+            }
+
+            return result;
+        }
+
+        return this.getScalarType(uid);
+    }
+
+    private YILType getScalarType(long uid) throws YILLoadingError {
+        if (uid == TypeID.FLOAT_32.value) {
+            return YILFloat.f32;
+        }
+        if (uid == TypeID.FLOAT_64.value) {
+            return YILFloat.f64;
+        }
+        if (uid == TypeID.FLOAT_80.value) {
+            return YILFloat.f80;
+        }
+        if (uid == TypeID.FLOAT_MAX.value) {
+            return YILFloat.fsize;
+        }
+        if (uid == TypeID.UINT_8.value) {
+            return YILInt.i8;
+        }
+        if (uid == TypeID.UINT_16.value) {
+            return YILInt.i16;
+        }
+        if (uid == TypeID.UINT_32.value) {
+            return YILInt.i32;
+        }
+        if (uid == TypeID.UINT_64.value) {
+            return YILInt.i64;
+        }
+        if (uid == TypeID.UINT_MAX.value) {
+            return YILInt.isize;
+        }
+        if (uid == TypeID.SINT_8.value) {
+            return YILInt.u8;
+        }
+        if (uid == TypeID.SINT_16.value) {
+            return YILInt.u16;
+        }
+        if (uid == TypeID.SINT_32.value) {
+            return YILInt.u32;
+        }
+        if (uid == TypeID.SINT_64.value) {
+            return YILInt.u64;
+        }
+        if (uid == TypeID.SINT_MAX.value) {
+            return YILInt.usize;
+        }
+        if (uid == TypeID.VOID.value) {
+            return YILVoid.YIL_VOID;
+        }
+
+        throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE_TYPE_TABLE.message));
+    }
+
+    /*!
+     * ====================================================================================================
+     * ====================================================================================================
+     * ====================================          SYMBOLS          =====================================
+     * ====================================================================================================
+     * ====================================================================================================
+     */
 
     private void loadSymbols() throws YILLoadingError {
         var reader = new ByteReader(this._currentSymbolTable);
@@ -162,6 +360,16 @@ public class YILLoader {
     private void loadConstant(ByteReader reader) throws YILLoadingError {
 
     }
+
+
+    /*!
+     * ====================================================================================================
+     * ====================================================================================================
+     * ==================================          STRING TABLE          ==================================
+     * ====================================================================================================
+     * ====================================================================================================
+     */
+
 
     private String readString(long nameOff) throws YILLoadingError {
         if (this._importedStrings.containsKey(nameOff)) {
