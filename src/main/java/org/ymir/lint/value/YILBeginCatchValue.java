@@ -2,8 +2,8 @@ package org.ymir.lint.value;
 
 import org.ymir.lexing.Word;
 import org.ymir.lint.YILNode;
-import org.ymir.lint.YILType;
 import org.ymir.lint.YILValue;
+import org.ymir.lint.type.YILPointer;
 import org.ymir.utils.Formatter;
 
 import java.util.Objects;
@@ -12,8 +12,8 @@ public class YILBeginCatchValue extends YILValue {
 
     private final String _name;
 
-    public YILBeginCatchValue(Word loc, YILType type, String name) {
-        super(loc, type);
+    public YILBeginCatchValue(Word loc, String name) {
+        super(loc, YILPointer.YIL_PTR_VOID);
         _name = name;
     }
 

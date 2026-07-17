@@ -1,5 +1,6 @@
 package org.ymir.lint.loading;
 
+import ch.obermuhlner.math.big.BigFloat;
 import org.ymir.global.GlobalMachineState;
 import org.ymir.lexing.Word;
 import org.ymir.lint.YILGlobal;
@@ -12,10 +13,11 @@ import org.ymir.lint.global.YILGlobalVar;
 import org.ymir.lint.instr.YILLabel;
 import org.ymir.lint.instr.YILVarDecl;
 import org.ymir.lint.type.*;
-import org.ymir.lint.value.YILVarValue;
+import org.ymir.lint.value.*;
 
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.*;
@@ -645,72 +647,238 @@ public class YILLoader {
         throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE.message));
     }
 
-    private YILValue readVarValue(ByteReader reader) {
-        return null;
+    private YILValue readVarValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+        var name = this.readString(reader.readU64());
+        var id = reader.readU64();
+        var isThLocal = reader.readBool();
+        var isTemp = reader.readBool();
+
+        if (id != 0) {
+            var localVar = this._currentFrameVars.get(id);
+            if (localVar != null && this._inFrame) {
+                if (!localVar.getType().opEquals(type)) {
+                    throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE.message));
+                }
+                if (!localVar.getName().equals(name)) {
+                    throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE.message));
+                }
+                if (localVar.isThreadLocal() != isThLocal) {
+                    throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE.message));
+                }
+                if (localVar.isTemp() != isTemp) {
+                    throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE.message));
+                }
+
+                if (localVar.getLoc().equals(loc)) {
+                    return localVar;
+                }
+            }
+        }
+
+        var result = new YILVarValue(loc, type, id, name, isTemp, isThLocal);
+        if (id != 0) {
+            this._currentFrameVars.put(id, result);
+        }
+
+        return result;
     }
 
     private YILValue readUnitValue(ByteReader reader) {
-        return null;
+        return YILUnitValue.YIL_UNIT;
     }
 
-    private YILValue readUnrefValue(ByteReader reader) {
-        return null;
+    private YILValue readUnrefValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+        var value = this.readValue(reader);
+
+        return new YILUnrefValue(loc, type, value);
     }
 
-    private YILValue readUnaryValue(ByteReader reader) {
-        return null;
+    private YILValue readUnaryValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+        var opCode = reader.readU64();
+        if (opCode >= UnaryOperator.values().length) {
+            throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE.message));
+        }
+
+        var op = UnaryOperator.values()[(int) opCode];
+        var value = this.readValue(reader);
+
+        return new YILUnaryValue(loc, type, op, value);
     }
 
-    private YILValue readTupleValue(ByteReader reader) {
-        return null;
+    private YILValue readTupleValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+
+        var nbFieldNames = reader.readU64();
+        var nbFieldValues = reader.readU64();
+
+        var fieldNames = new ArrayList<String>();
+        var fieldValues = new ArrayList<YILValue>();
+        for (int i = 0; i < nbFieldNames; i++) {
+            fieldNames.add(this.readString(reader.readU64()));
+        }
+
+        for (int i = 0; i < nbFieldValues; i++) {
+            fieldValues.add(this.readValue(reader));
+        }
+
+        return new YILTupleValue(loc, type, fieldValues, fieldNames);
     }
 
-    private YILValue readStringLiteral(ByteReader reader) {
-        return null;
+    private YILValue readStringLiteral(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+        var content = this.readStringAsU8(reader.readU64());
+
+        return new YILStringValue(loc, type, content);
     }
 
-    private YILValue readPtrCallValue(ByteReader reader) {
-        return null;
+    private YILValue readPtrCallValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+
+        var nbParams = reader.readU64();
+        var ptr = this.readValue(reader);
+        var params = new ArrayList<YILValue>();
+        for (int i = 0; i < nbParams; i++) {
+            params.add(this.readValue(reader));
+        }
+
+        return new YILPtrCallValue(loc, type, ptr, params);
     }
 
-    private YILValue readNameCallValue(ByteReader reader) {
-        return null;
+    private YILValue readNameCallValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+        var name = this.readString(reader.readU64());
+
+        var nbParams = reader.readU64();
+        var params = new ArrayList<YILValue>();
+        for (int i = 0; i < nbParams; i++) {
+            params.add(this.readValue(reader));
+        }
+
+        return new YILNameCallValue(loc, type, name, params);
     }
 
-    private YILValue readIntValue(ByteReader reader) {
-        return null;
+    private YILValue readIntValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+
+        if (type instanceof YILInt iT) {
+            var bigI = BigInteger.valueOf(reader.readU64());
+            return new YILIntValue(loc, type, bigI);
+        } else {
+            throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE.message));
+        }
     }
 
-    private YILValue readFloatValue(ByteReader reader) {
-        return null;
+    private YILValue readFloatValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+        var spec = reader.readU8();
+        BigFloat.Context context = BigFloat.context(100); // 100 bits of precision
+
+        var bigF = context.valueOf("0");
+        if (spec == SpecialFloatValue.HEX.value) {
+            var floatV = this.readString(reader.readU64());
+            bigF = context.valueOf(floatV);
+        } else if (spec == SpecialFloatValue.NAN.value) {
+            bigF = BigFloat.NaN;
+        } else if (spec == SpecialFloatValue.INFP.value) {
+            bigF = BigFloat.POSITIVE_INFINITY;
+        } else if (spec == SpecialFloatValue.INFN.value) {
+            bigF = BigFloat.NEGATIVE_INFINITY;
+        } else {
+            throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE.message));
+        }
+
+        return new YILFloatValue(loc, type, bigF);
     }
 
-    private YILValue readFieldValue(ByteReader reader) {
-        return null;
+    private YILValue readFieldValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+        var isName = reader.readBool();
+        var name = "";
+        long index = 0;
+
+        if (isName) {
+            name = this.readString(reader.readU64());
+        } else {
+            index = reader.readU64();
+        }
+
+        var value = this.readValue(reader);
+        return new YILFieldValue(loc, type, value, index, name);
     }
 
-    private YILValue readCastValue(ByteReader reader) {
-        return null;
+    private YILValue readCastValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+        var value = this.readValue(reader);
+
+        return new YILCastValue(loc, type, value);
     }
 
-    private YILValue readBinaryValue(ByteReader reader) {
-        return null;
+    private YILValue readBinaryValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+        var opCode = reader.readU64();
+
+        if (opCode >= BinaryOperator.values().length) {
+            throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE.message));
+        }
+
+        var op = BinaryOperator.values()[(int) opCode];
+        var left = this.readValue(reader);
+        var right = this.readValue(reader);
+
+        return new YILBinaryValue(loc, type, left, right, op);
     }
 
-    private YILValue readBeginCatch(ByteReader reader) {
-        return null;
+    private YILValue readBeginCatch(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var name = this.readString(reader.readU64());
+
+        return new YILBeginCatchValue(loc, name);
     }
 
-    private YILValue readArrayLiteral(ByteReader reader) {
-        return null;
+    private YILValue readArrayLiteral(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+
+        var len = reader.readU64();
+        var values = new ArrayList<YILValue>();
+        for (int i = 0; i < len; i++) {
+            values.add(this.readValue(reader));
+        }
+
+        return new YILArrayValue(loc, type, values);
     }
 
-    private YILValue readArrayAccessValue(ByteReader reader) {
-        return null;
+    private YILValue readArrayAccessValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+
+        var value = this.readValue(reader);
+        var index = this.readValue(reader);
+
+        return new YILArrayAccessValue(loc, type, index, value);
     }
 
-    private YILValue readAddrValue(ByteReader reader) {
-        return null;
+    private YILValue readAddrValue(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+        var value = this.readValue(reader);
+
+        return new YILAddrValue(loc, type, value);
     }
 
     /*!
