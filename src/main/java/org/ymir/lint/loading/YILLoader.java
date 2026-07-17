@@ -3,11 +3,14 @@ package org.ymir.lint.loading;
 import org.ymir.global.GlobalMachineState;
 import org.ymir.lexing.Word;
 import org.ymir.lint.YILGlobal;
+import org.ymir.lint.YILInstr;
 import org.ymir.lint.YILType;
+import org.ymir.lint.YILValue;
 import org.ymir.lint.global.YILConstant;
 import org.ymir.lint.global.YILFrame;
 import org.ymir.lint.global.YILGlobalVar;
 import org.ymir.lint.instr.YILLabel;
+import org.ymir.lint.instr.YILVarDecl;
 import org.ymir.lint.type.*;
 import org.ymir.lint.value.YILVarValue;
 
@@ -350,17 +353,365 @@ public class YILLoader {
         var symLen = reader.readU64();
 
         var name = this.readString(nameOff);
+        var old = this._frames.get(name);
+        var replace = this.mustReplaceSymbol(old, name, isWeak);
+        if (!replace) {
+            if (!isWeak) {
+                IO.println("Ignoring strong frame " + name);
+            }
 
+            reader.ignore(symLen);
+            return;
+        }
+
+        try {
+            var loc = this.readLocation(locOff);
+            var nbParams = reader.readU32();
+            var vars = new ArrayList<YILVarDecl>();
+            for (var i = 0; i < nbParams; i++) {
+                vars.add(this.readVarDecl(reader));
+            }
+
+            var retType = this.getType(reader.readU64());
+            this._currentFrameLabels = new HashMap<>();
+            this._currentFrameVars = new HashMap<>();
+            this._inFrame = true;
+
+            var body = this.readInstruction(reader);
+            var result = new YILFrame(this._loadInstant,
+                    this._currentModule,
+                    loc,
+                    loc,
+                    name,
+                    isWeak,
+                    vars,
+                    retType,
+                    body,
+                    isGlbCtor);
+
+            this._frames.put(name, result);
+        } catch (YILLoadingError err) {
+            throw new YILLoadingError(String.format(LoadingErrors.IMPORTING_FRAME.message, name) +
+                    err.getMessage());
+        }
     }
 
-
-    private void loadGlobal(ByteReader reader) throws YILLoadingError {
-    }
 
     private void loadConstant(ByteReader reader) throws YILLoadingError {
+        var locOff = reader.readU64();
+        var isWeak = reader.readBool();
+        var nameOff = reader.readU64();
+        var isLocal = reader.readBool();
+        var symLen = reader.readU64();
 
+        var name = this.readString(nameOff);
+
+        var old = this._constants.get(name);
+        var replace = this.mustReplaceSymbol(old, name, isWeak);
+        if (!replace) {
+            if (!isWeak) {
+                IO.println("Ignoring strong constant " + name);
+            }
+
+            reader.ignore(symLen);
+            return;
+        }
+
+        try {
+            var loc = this.readLocation(locOff);
+            this._currentFrameLabels = new HashMap<>();
+            this._currentFrameVars = new HashMap<>();
+            this._inFrame = false;
+
+            var value = this.readValue(reader);
+            var result = new YILConstant(this._loadInstant,
+                    this._currentModule,
+                    loc,
+                    loc,
+                    name,
+                    isWeak,
+                    isLocal,
+                    value);
+            this._constants.put(name, result);
+        } catch (YILLoadingError err) {
+            throw new YILLoadingError(String.format(LoadingErrors.IMPORTING_CONSTANT.message, name) +
+                    err.getMessage());
+        }
     }
 
+    private void loadGlobal(ByteReader reader) throws YILLoadingError {
+        var locOff = reader.readU64();
+        var isWeak = reader.readBool();
+        var nameOff = reader.readU64();
+        var isLocal = reader.readBool();
+        var symLen = reader.readU64();
+
+        var name = this.readString(nameOff);
+
+        var old = this._globalVars.get(name);
+        var replace = this.mustReplaceSymbol(old, name, isWeak);
+        if (!replace) {
+            if (!isWeak) {
+                IO.println("Ignoring strong global var " + name);
+            }
+
+            reader.ignore(symLen);
+            return;
+        }
+
+        try {
+            var loc = this.readLocation(locOff);
+            this._currentFrameLabels = new HashMap<>();
+            this._currentFrameVars = new HashMap<>();
+            this._inFrame = false;
+
+            var value = this.readValue(reader);
+            var result = new YILGlobalVar(this._loadInstant,
+                    this._currentModule,
+                    loc,
+                    loc,
+                    name,
+                    isWeak,
+                    isLocal,
+                    value);
+            this._globalVars.put(name, result);
+        } catch (YILLoadingError err) {
+            throw new YILLoadingError(String.format(LoadingErrors.IMPORTING_GLOBAL_VAR.message, name) +
+                    err.getMessage());
+        }
+    }
+
+    private boolean mustReplaceSymbol(YILGlobal old, String name, boolean isWeak) {
+        boolean replace;
+        if (old != null) {
+            if (!isWeak) {
+                replace = old.isWeak() || this._loadInstant.isAfter(old.getCreationTime());
+            } else {
+                replace = old.isWeak() && this._loadInstant.isAfter(old.getCreationTime());
+            }
+        } else {
+            replace = true;
+        }
+
+        return replace;
+    }
+
+    /*!
+     * ====================================================================================================
+     * ====================================================================================================
+     * ==================================          INSTRUCTIONS          ==================================
+     * ====================================================================================================
+     * ====================================================================================================
+     */
+
+    private YILInstr readInstruction(ByteReader reader) throws YILLoadingError {
+        var code = reader.readU32();
+        if (code == ValueID.AFFECT.value) {
+            return this.readAffect(reader);
+        }
+        if (code == ValueID.BLOCK.value) {
+            return this.readBlock(reader);
+        }
+        if (code == ValueID.CALL.value) {
+            return this.readCall(reader);
+        }
+        if (code == ValueID.COND_JMP.value) {
+            return this.readCondJmp(reader);
+        }
+        if (code == ValueID.GOTO.value) {
+            return this.readGoto(reader);
+        }
+        if (code == ValueID.LABEL.value) {
+            return this.readLabel(reader);
+        }
+        if (code == ValueID.RETURN.value) {
+            return this.readReturn(reader);
+        }
+        if (code == ValueID.TRY_CATCH.value) {
+            return this.readTryCatch(reader);
+        }
+        if (code == ValueID.TRY_FIN.value) {
+            return this.readTryFin(reader);
+        }
+        if (code == ValueID.VAR_DECL.value) {
+            return this.readVarDecl(reader);
+        }
+
+        throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE.message));
+    }
+
+    private YILVarDecl readVarDecl(ByteReader reader) {
+        return null;
+    }
+
+    private YILInstr readTryFin(ByteReader reader) {
+        return null;
+    }
+
+    private YILInstr readTryCatch(ByteReader reader) {
+        return null;
+    }
+
+    private YILInstr readReturn(ByteReader reader) {
+        return null;
+    }
+
+    private YILInstr readLabel(ByteReader reader) {
+        return null;
+    }
+
+    private YILInstr readGoto(ByteReader reader) {
+        return null;
+    }
+
+    private YILInstr readCondJmp(ByteReader reader) {
+        return null;
+    }
+
+    private YILInstr readCall(ByteReader reader) {
+        return null;
+    }
+
+    private YILInstr readBlock(ByteReader reader) {
+        return null;
+    }
+
+    private YILInstr readAffect(ByteReader reader) {
+        return null;
+    }
+
+    /*!
+     * ====================================================================================================
+     * ====================================================================================================
+     * =====================================          VALUES          =====================================
+     * ====================================================================================================
+     * ====================================================================================================
+     */
+
+    private YILValue readValue(ByteReader reader) throws YILLoadingError {
+        var code = reader.readU32();
+        if (code == ValueID.ADDR_V.value) {
+            return this.readAddrValue(reader);
+        }
+        if (code == ValueID.ARRAY_ACCESS_V.value) {
+            return this.readArrayAccessValue(reader);
+        }
+        if (code == ValueID.ARRAY_LIT_V.value) {
+            return this.readArrayLiteral(reader);
+        }
+        if (code == ValueID.BEGIN_CATCH_V.value) {
+            return this.readBeginCatch(reader);
+        }
+        if (code == ValueID.BINARY_V.value) {
+            return this.readBinaryValue(reader);
+        }
+        if (code == ValueID.CAST_V.value) {
+            return this.readCastValue(reader);
+        }
+        if (code == ValueID.FIELD_V.value) {
+            return this.readFieldValue(reader);
+        }
+        if (code == ValueID.FLOAT_V.value) {
+            return this.readFloatValue(reader);
+        }
+        if (code == ValueID.INT_V.value) {
+            return this.readIntValue(reader);
+        }
+        if (code == ValueID.NAME_CALL_V.value) {
+            return this.readNameCallValue(reader);
+        }
+        if (code == ValueID.PTR_CALL_V.value) {
+            return this.readPtrCallValue(reader);
+        }
+        if (code == ValueID.STRING_LIT_V.value) {
+            return this.readStringLiteral(reader);
+        }
+        if (code == ValueID.TUPLE_V.value) {
+            return this.readTupleValue(reader);
+        }
+        if (code == ValueID.UNARY_V.value) {
+            return this.readUnaryValue(reader);
+        }
+        if (code == ValueID.UNIT_V.value) {
+            return this.readUnitValue(reader);
+        }
+        if (code == ValueID.UNREF_V.value) {
+            return this.readUnrefValue(reader);
+        }
+        if (code == ValueID.VAR_V.value) {
+            return this.readVarValue(reader);
+        }
+
+        throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE.message));
+    }
+
+    private YILValue readVarValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readUnitValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readUnrefValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readUnaryValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readTupleValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readStringLiteral(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readPtrCallValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readNameCallValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readIntValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readFloatValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readFieldValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readCastValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readBinaryValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readBeginCatch(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readArrayLiteral(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readArrayAccessValue(ByteReader reader) {
+        return null;
+    }
+
+    private YILValue readAddrValue(ByteReader reader) {
+        return null;
+    }
 
     /*!
      * ====================================================================================================
