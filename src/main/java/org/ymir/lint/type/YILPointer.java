@@ -9,7 +9,9 @@ import java.util.Objects;
 
 public class YILPointer extends YILType {
 
-    private final YILType _inner;
+    public static final YILPointer YIL_PTR_VOID = new YILPointer(1, YILVoid.YIL_VOID);
+
+    private YILType _inner;
 
     public YILPointer(long uid, YILType inner) {
         super(uid);
@@ -42,5 +44,9 @@ public class YILPointer extends YILType {
 
     public YILType getInner() {
         return _inner;
+    }
+
+    public void setInner(YILType inner) {
+        this._inner = inner;
     }
 }

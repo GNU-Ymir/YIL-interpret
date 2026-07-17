@@ -1,6 +1,5 @@
 package org.ymir.lint.type;
 
-import org.ymir.lexing.Word;
 import org.ymir.lint.YILNode;
 import org.ymir.lint.YILType;
 import org.ymir.utils.Formatter;
@@ -9,7 +8,7 @@ import java.util.Objects;
 
 public class YILArray extends YILType {
 
-    private final YILType _inner;
+    private YILType _inner;
     private final long _len;
 
     public YILArray(long uid, YILType inner, long len) {
@@ -50,5 +49,9 @@ public class YILArray extends YILType {
 
     public YILType getInner() {
         return _inner;
+    }
+
+    public void setInner(YILType inner) {
+        this._inner = inner;
     }
 }

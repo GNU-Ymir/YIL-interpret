@@ -6,6 +6,7 @@ import org.ymir.lint.YILNode;
 import org.ymir.lint.YILValue;
 import org.ymir.utils.Formatter;
 
+import java.time.Instant;
 import java.util.Objects;
 
 public class YILGlobalVar extends YILGlobal {
@@ -13,13 +14,15 @@ public class YILGlobalVar extends YILGlobal {
     private final YILValue _value;
     private final boolean _isThreadLocal;
 
-    public YILGlobalVar(Word loc,
+    public YILGlobalVar(Instant creationTime,
+                        String src,
+                        Word loc,
                         Word implLoc,
                         String name,
                         boolean isWeak,
-                        YILValue value,
-                        boolean isThreadLocal) {
-        super(loc, implLoc, name, isWeak);
+                        boolean isThreadLocal,
+                        YILValue value) {
+        super(creationTime, src, loc, implLoc, name, isWeak);
         this._value = value;
         this._isThreadLocal = isThreadLocal;
     }

@@ -7,10 +7,10 @@ import org.ymir.utils.Formatter;
 
 public class YILFloat extends YILType {
 
-    public static final YILFloat YIL_FLOAT_32 = new YILFloat(32);
-    public static final YILFloat YIL_FLOAT_64 = new YILFloat(64);
-    public static final YILFloat YIL_FLOAT_80 = new YILFloat(80);
-    public static final YILFloat YIL_FLOAT_MAX = new YILFloat(0);
+    public static final YILFloat f32 = new YILFloat(32);
+    public static final YILFloat f64 = new YILFloat(64);
+    public static final YILFloat f80 = new YILFloat(80);
+    public static final YILFloat fsize = new YILFloat(0);
 
     private final long _size;
 
