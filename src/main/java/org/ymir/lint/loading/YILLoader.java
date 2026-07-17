@@ -10,8 +10,7 @@ import org.ymir.lint.YILValue;
 import org.ymir.lint.global.YILConstant;
 import org.ymir.lint.global.YILFrame;
 import org.ymir.lint.global.YILGlobalVar;
-import org.ymir.lint.instr.YILLabel;
-import org.ymir.lint.instr.YILVarDecl;
+import org.ymir.lint.instr.*;
 import org.ymir.lint.type.*;
 import org.ymir.lint.value.*;
 
@@ -542,44 +541,140 @@ public class YILLoader {
         throw new YILLoadingError(String.format(LoadingErrors.MALFORMED_BYTECODE.message));
     }
 
-    private YILVarDecl readVarDecl(ByteReader reader) {
-        return null;
+    private YILVarDecl readVarDecl(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var name = this.readString(reader.readU64());
+        var type = this.getType(reader.readU64());
+        var id = reader.readU64();
+        var isTemp = reader.readBool();
+
+        return new YILVarDecl(loc, name, id, type, isTemp);
     }
 
-    private YILInstr readTryFin(ByteReader reader) {
-        return null;
+    private YILInstr readTryFin(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var tryLen = reader.readU64();
+        var finLen = reader.readU64();
+
+        var tryPart = new ArrayList<YILInstr>();
+        var finPart = new ArrayList<YILInstr>();
+        for (int i = 0; i < tryLen; i++) {
+            tryPart.add(this.readInstruction(reader));
+        }
+        for (int i = 0; i < finLen; i++) {
+            finPart.add(this.readInstruction(reader));
+        }
+
+        return new YILTryFin(loc, tryPart, finPart);
     }
 
-    private YILInstr readTryCatch(ByteReader reader) {
-        return null;
+    private YILInstr readTryCatch(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var type = this.getType(reader.readU64());
+
+        var tryLen = reader.readU64();
+        var catchLen = reader.readU64();
+
+        var tryPart = new ArrayList<YILInstr>();
+        var catchPart = new ArrayList<YILInstr>();
+        for (int i = 0; i < tryLen; i++) {
+            tryPart.add(this.readInstruction(reader));
+        }
+        for (int i = 0; i < catchLen; i++) {
+            catchPart.add(this.readInstruction(reader));
+        }
+
+        return new YILTryCatch(loc, type, tryPart, catchPart);
     }
 
-    private YILInstr readReturn(ByteReader reader) {
-        return null;
+    private YILInstr readReturn(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var value = this.readValue(reader);
+
+        return new YILReturn(loc, value);
     }
 
-    private YILInstr readLabel(ByteReader reader) {
-        return null;
+    private YILInstr readLabel(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var id = reader.readU64();
+        var name = this.readString(reader.readU64());
+
+        YILLabel label = this._currentFrameLabels.get(id);
+        if (label == null) {
+            label = new YILLabel(loc, name, id);
+            this._currentFrameLabels.put(id, label);
+        }
+
+        return label;
     }
 
-    private YILInstr readGoto(ByteReader reader) {
-        return null;
+    private YILInstr readGoto(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var thenLoc = this.readLocation(reader.readU64());
+
+        var thenId = reader.readU64();
+        var thenName = this.readString(reader.readU64());
+
+        var thenLabel = this._currentFrameLabels.get(thenId);
+        if (thenLabel == null) {
+            thenLabel = new YILLabel(thenLoc, thenName, thenId);
+            this._currentFrameLabels.put(thenId, thenLabel);
+        }
+
+        return new YILGoto(loc, thenLabel);
     }
 
-    private YILInstr readCondJmp(ByteReader reader) {
-        return null;
+    private YILInstr readCondJmp(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var thenLoc = this.readLocation(reader.readU64());
+        var thenId = reader.readU64();
+        var thenName = this.readString(reader.readU64());
+
+        var elseLoc = this.readLocation(reader.readU64());
+        var elseId = reader.readU64();
+        var elseName = this.readString(reader.readU64());
+
+        var test = this.readValue(reader);
+        var thenLabel = this._currentFrameLabels.get(thenId);
+        var elseLabel = this._currentFrameLabels.get(elseId);
+
+        if (thenLabel == null) {
+            thenLabel = new YILLabel(thenLoc, thenName, thenId);
+            this._currentFrameLabels.put(thenId, thenLabel);
+        }
+
+        if (elseLabel == null) {
+            elseLabel = new YILLabel(elseLoc, elseName, elseId);
+            this._currentFrameLabels.put(elseId, elseLabel);
+        }
+
+        return new YILCondJump(loc, test, thenLabel, elseLabel);
     }
 
-    private YILInstr readCall(ByteReader reader) {
-        return null;
+    private YILInstr readCall(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var value = this.readValue(reader);
+
+        return new YILCall(loc, value);
     }
 
-    private YILInstr readBlock(ByteReader reader) {
-        return null;
+    private YILInstr readBlock(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var nb = reader.readU64();
+        var instr = new ArrayList<YILInstr>();
+        for (int i = 0; i < nb; i++) {
+            instr.add(this.readInstruction(reader));
+        }
+
+        return new YILBlock(loc, instr);
     }
 
-    private YILInstr readAffect(ByteReader reader) {
-        return null;
+    private YILInstr readAffect(ByteReader reader) throws YILLoadingError {
+        var loc = this.readLocation(reader.readU64());
+        var left = this.readValue(reader);
+        var right = this.readValue(reader);
+
+        return new YILAffect(loc, left, right);
     }
 
     /*!
